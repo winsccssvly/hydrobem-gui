@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = ["crates/hydrobem-engine", "crates/gui-core", "crates/hydrobem-gui", "crates/xtask"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+publish = false
+
+# Third-party versions are pinned exactly and recorded in THIRD_PARTY_NOTICES.md.
+[workspace.dependencies]
+hydrobem-engine = { path = "crates/hydrobem-engine" }
+gui-core = { path = "crates/gui-core", package = "hydrobem-gui-core" }
+# without egui's bundled fonts: the window reads the fonts of Windows (style::install_fonts)
+eframe = { version = "=0.37.0", default-features = false, features = ["accesskit", "clipboard", "links", "persistence", "wgpu"] }
+egui_extras = "=0.37.0"
+egui_plot = "=0.38.0"
+egui_kittest = { version = "=0.37.0", features = ["wgpu", "snapshot", "eframe"] }
+bytemuck = { version = "=1.25.2", features = ["derive"] }
+rfd = "=0.17.2"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+winresource = "=0.1.34"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_UI_WindowsAndMessaging"] }
+num-complex = { version = "=0.4.6", default-features = false, features = ["std"] }
+delaunator = "=1.1.0"
+
+[workspace.lints.rust]
+# Project code builds without warnings (the former /W4 /WX rule): fix them, do not silence them.
+warnings = "deny"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+# The release build of the application (the engine is hydrobem.dll, built by HydroBEM).
+[profile.release]
+codegen-units = 1
+lto = "fat"
+debug = "line-tables-only"
+
+# Iteration: our crates lightly optimized, every dependency fully.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# A quick optimized build for screenshots and timing while developing.
+[profile.quick]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

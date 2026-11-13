@@ -1,0 +1,39 @@
+# hydrobem-gui: the HydroBEM engine (hydrobem.dll, bound with ctypes), its Python API and the GUI
+# (HydroBEM.exe), as one Windows wheel. The wheel is assembled by `cargo xtask dist` then
+# `python scripts/build_wheel.py` (the release HydroBEM.exe and engine/hydrobem.dll into
+# hydrobem_gui/bin); this file describes the package and configures its tests and ruff. It has no
+# [build-system]: the package is not installed from source (no `pip install -e`); the tests run on
+# the source tree (python/tests/conftest.py puts python/ on sys.path).
+[project]
+name = "hydrobem-gui"
+version = "0.3.0"
+description = "HydroBEM: frequency-domain panel-method (BEM) hydrodynamics with its graphical interface"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["numpy>=1.26"]
+
+[project.gui-scripts]
+hydrobem-gui = "hydrobem_gui.gui:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# the slow ones are HydroBEM's convergence studies and published references of the engine, which
+# HydroBEM runs; kept in the copied files (copied whole), not run here (docs/DEVELOPMENT.md)
+addopts = "--strict-markers -m 'not slow'"
+markers = [
+    "slow: convergence studies and published references (seconds to minutes); deselect with -m \"not slow\"",
+]
+# a warning of the engine fails a test unless the test expects it (pytest.warns)
+filterwarnings = ["error::hydrobem_gui.errors.HydroBEMWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E741"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hydrobem_gui"]
+known-local-folder = ["meshes", "problems", "bodies", "regression_problems"]

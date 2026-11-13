@@ -1,0 +1,19 @@
+{
+    "schema_version":  2,
+    "library":  "hydrobem.dll",
+    "abi_version":  8,
+    "source_commit":  "ee6c71b003b2632af542332cee5e796d4017d9cc",
+    "source_describe":  "ee6c71b003b2",
+    "source_dirty":  false,
+    "source_commit_utc":  "2026-11-13T13:03:41.0000000Z",
+    "dll_built_utc":  "2026-11-13T12:49:40.5973204Z",
+    "imported_utc":  "2026-11-13T13:11:42.0504454Z",
+    "sha256":  {
+                   "hydrobem.dll":  "7e9046e958d56b042873bb2b79f726201a0eb6f975abef3a0dba64699a36028b",
+                   "hydrobem.h":  "108ecd93de1a4166c0ba68171f057fb096cb29a063830646c291c1c6cbd2a0f4",
+                   "legal/LICENSE":  "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+                   "legal/licenses/rust-crates.txt":  "59789037f3b88d654e69d11856d30dda7cf07d3d177d9bbbfdbd1b9ade9518e8",
+                   "legal/NOTICE":  "2e6cb63402cbc664163b0c08a8afd5dc20845b356434115cb20ad00047a9725e",
+                   "legal/THIRD_PARTY_NOTICES.md":  "2fa068f733a961591431be8ddc4cc83cea151d258104b9e25651393eb18e84d4"
+               }
+}

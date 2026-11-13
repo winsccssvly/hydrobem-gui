@@ -1,0 +1,10 @@
+# AVX2/FMA, the instruction set of the engine's hydrobem.dll (HydroBEM's own .cargo/config.toml):
+# the application needs it as well. The C runtime is linked dynamically, as HydroBEM's: the programs
+# use the Visual C++ runtime (vcruntime140.dll) that Python for Windows installs and the Universal C
+# Runtime of Windows; nothing of the Microsoft runtime is distributed (python/hydrobem_gui/gui.py
+# puts Python's runtime folder on the PATH of the GUI it starts).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+avx2,+fma"]
+
+[alias]
+xtask = "run --package xtask --"

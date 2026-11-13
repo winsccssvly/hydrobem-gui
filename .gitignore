@@ -1,0 +1,29 @@
+# Build and packaging output
+/build/
+/out/
+/dist/
+
+# Local configuration (an agent's personal instructions and settings stay local)
+.claude/
+CLAUDE.local.md
+.vs/
+.vscode/
+*.user
+
+# Cargo
+/target/
+
+# The engine DLL, imported by scripts/import-engine.ps1 (engine/IMPORT.json records it)
+/engine/hydrobem.dll
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# results files: written by the examples and the tests, never kept here
+*.hbr
+
+# the outputs the examples make (examples/README.md)
+examples/*/out/

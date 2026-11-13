@@ -1,0 +1,47 @@
+HydroBEM GUI
+Copyright 2026 Sanghun Lee
+
+Parts of HydroBEM GUI were written with AI coding assistants under the direction of
+the author, who selected, reviewed and tested the work and is responsible for it.
+The copyright notice above applies to the extent that the work is protected by
+copyright.
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+No source file carries a licence header: every file of this repository is
+covered by that licence, except the material named below as not licensed by
+this project.
+
+This product includes software of HydroBEM (Copyright 2026 Sanghun Lee,
+Apache License, Version 2.0): its Python package, tests and test data were
+copied into python/hydrobem_gui, python/tests and scripts/gen_model_classes.py,
+scripts/gen_cylinder_reference.py, scripts/gen_cylinder_array_reference.py and
+scripts/gen_sphere_array_reference.py (the last three make the reference data
+of the tests),
+its examples into examples/ (importing hydrobem_gui), its user documentation of the
+Python API into docs/python/, and its engine hydrobem.dll is distributed with this product. HydroBEM's own
+NOTICE is engine/legal/NOTICE (licenses/hydrobem/NOTICE in a distribution).
+
+The published values reproduced with their citation in
+python/tests/data/hulme1982*.txt (A. Hulme (1982), J. Fluid Mech. 121,
+tables 1 and 2) and python/tests/data/kim_yue1990.txt (M.-H. Kim and
+D. K. P. Yue (1990), J. Fluid Mech. 211, table 3) are those of their authors and are not licensed by this
+project; so are the published values the scripts of examples/ print beside
+HydroBEM's, each with its citation.
+
+cad2bem (GNU General Public License, version 3 or later), which converts CAD
+files into the geometry files (.hbg) this product reads, is a separate program
+of its own; this product neither runs it nor distributes it.
+
+WAMIT is a trademark of WAMIT, Inc. This product writes files in the WAMIT
+file formats; it is not affiliated with, endorsed by or sponsored by WAMIT, Inc.
+
+The test meshes and models are made from HydroBEM's examples
+(crates/gui-core/tests/data/README.md).
+
+Binary distributions contain the Rust crates HydroBEM.exe is compiled with;
+their licences are listed in THIRD_PARTY_NOTICES.md, their licence texts are in
+licenses/crates/, and they must accompany such distributions. HydroBEM.exe
+carries no font: its window uses the fonts of Windows. No part of the
+Microsoft C runtime is distributed: HydroBEM.exe and hydrobem.dll use the
+Visual C++ runtime that Python for Windows installs and the Universal C
+Runtime of Windows.

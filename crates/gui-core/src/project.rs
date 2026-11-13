@@ -1,0 +1,1783 @@
+//! The project the GUI edits: bodies, damping lids, environment, analysis options, wave cases and
+//! the field-point grid (REQUIREMENTS.md). Body-owned data stays beneath each body; lids,
+//! environment, waves, options and field points are at project scope (AGENTS.md).
+
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+
+use crate::field_layout::{GridLayout, Profile};
+use crate::mesh::Mesh;
+
+pub type V3 = [f64; 3];
+
+pub const MODE_NAMES: [&str; 6] = ["surge", "sway", "heave", "roll", "pitch", "yaw"];
+pub const DOF_LABELS: [&str; 6] = ["Surge", "Sway", "Heave", "Roll", "Pitch", "Yaw"];
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MassCalculation {
+    #[default]
+    FromMesh,
+    Manual,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DepthType {
+    #[default]
+    Infinite,
+    Finite,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Domain {
+    #[default]
+    OpenSea,
+    XWall,
+    YWall,
+    OrthogonalWalls,
+    Channel,
+}
+
+impl Domain {
+    pub const ALL: [Domain; 5] =
+        [Domain::OpenSea, Domain::XWall, Domain::YWall, Domain::OrthogonalWalls, Domain::Channel];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Domain::OpenSea => "Open Sea",
+            Domain::XWall => "Wall at X = 0",
+            Domain::YWall => "Wall at Y = 0",
+            Domain::OrthogonalWalls => "Orthogonal Walls",
+            Domain::Channel => "Channel",
+        }
+    }
+
+    /// The engine's choice name (`environment.domain`).
+    pub fn engine_name(self) -> &'static str {
+        match self {
+            Domain::OpenSea => "open_sea",
+            Domain::XWall => "x_wall",
+            Domain::YWall => "y_wall",
+            Domain::OrthogonalWalls => "orthogonal_walls",
+            Domain::Channel => "channel",
+        }
+    }
+
+    pub fn from_engine(name: &str) -> Option<Domain> {
+        Domain::ALL.into_iter().find(|d| d.engine_name() == name)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Formulation {
+    /// The engine chooses: total with a damping lid, scattered otherwise.
+    Auto,
+    #[default]
+    Scattered,
+    Total,
+}
+
+impl Formulation {
+    pub const ALL: [Formulation; 3] = [Formulation::Scattered, Formulation::Total, Formulation::Auto];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Formulation::Auto => "Auto",
+            Formulation::Scattered => "Scattered",
+            Formulation::Total => "Total",
+        }
+    }
+
+    pub fn engine_name(self) -> &'static str {
+        match self {
+            Formulation::Auto => "auto",
+            Formulation::Scattered => "scattered",
+            Formulation::Total => "total",
+        }
+    }
+
+    pub fn from_engine(name: &str) -> Option<Formulation> {
+        Formulation::ALL.into_iter().find(|f| f.engine_name() == name)
+    }
+}
+
+/// In the order of the Details choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InteriorMethod {
+    #[default]
+    None,
+    /// The wetted records lying in z = 0 (the engine's default).
+    Detect,
+    Projected,
+    Waterline,
+    Graded,
+    PanelRange,
+    /// A mesh of the library (body coordinates).
+    Mesh,
+}
+
+impl InteriorMethod {
+    pub const ALL: [InteriorMethod; 7] = [
+        InteriorMethod::None,
+        InteriorMethod::Detect,
+        InteriorMethod::Projected,
+        InteriorMethod::Waterline,
+        InteriorMethod::Graded,
+        InteriorMethod::PanelRange,
+        InteriorMethod::Mesh,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            InteriorMethod::None => "None",
+            InteriorMethod::Detect => "Detect",
+            InteriorMethod::Projected => "Projected",
+            InteriorMethod::Waterline => "Waterline",
+            InteriorMethod::Graded => "Graded",
+            InteriorMethod::PanelRange => "Panel Range",
+            InteriorMethod::Mesh => "Mesh",
+        }
+    }
+
+    /// A surface the engine generates (`interior_surface.method`).
+    pub fn engine_method(self) -> Option<&'static str> {
+        match self {
+            InteriorMethod::Detect => Some("detect"),
+            InteriorMethod::Projected => Some("projected"),
+            InteriorMethod::Waterline => Some("waterline"),
+            InteriorMethod::Graded => Some("graded"),
+            InteriorMethod::None | InteriorMethod::PanelRange | InteriorMethod::Mesh => None,
+        }
+    }
+
+    pub fn from_engine_method(name: &str) -> Option<InteriorMethod> {
+        InteriorMethod::ALL.into_iter().find(|m| m.engine_method() == Some(name))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SurfaceSource {
+    #[default]
+    PanelRange,
+    ExternalMesh,
+    /// Free-surface plates only: generated by the engine, the water of z = 0 inside a waterline
+    /// loop of a trimmed hull (`inside`, `body` of `PanelSurface`).
+    Generated,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WaveInputType {
+    #[default]
+    Frequency,
+    Period,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Environment {
+    pub depth_type: DepthType,
+    pub depth: f64,
+    pub density: f64,
+    pub gravity: f64,
+    pub domain: Domain,
+    pub channel_width: f64,
+    /// The wall reflection of a channel, 0..1.
+    pub channel_reflect: f64,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self {
+            depth_type: DepthType::Infinite,
+            depth: 100.0,
+            density: 1025.0,
+            gravity: 9.80665,
+            domain: Domain::OpenSea,
+            channel_width: 100.0,
+            channel_reflect: 1.0,
+        }
+    }
+}
+
+impl Environment {
+    /// The engine's depth: +inf for infinite depth.
+    pub fn engine_depth(&self) -> f64 {
+        match self.depth_type {
+            DepthType::Infinite => f64::INFINITY,
+            DepthType::Finite => self.depth,
+        }
+    }
+}
+
+/// The engine's `options`: how the problem is solved.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Options {
+    pub logarithmic_integration: bool,
+    pub log_tolerance: f64,
+    /// Frequencies solved at a time (the memory grows with it).
+    pub frequency_threads: i64,
+    /// Threads inside each frequency (assembly, LU).
+    pub inner_threads: i64,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self { logarithmic_integration: true, log_tolerance: 1e-4, frequency_threads: 1, inner_threads: 1 }
+    }
+}
+
+/// The engine's `first_order`: the first-order problems and outputs the solve gives.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FirstOrder {
+    pub radiation: bool,
+    pub diffraction: bool,
+    /// The unknown of the diffraction problem.
+    pub diffraction_formulation: Formulation,
+    /// The motions (RAO).
+    pub motion: bool,
+    /// At the field points: the free-surface elevation (z = 0) and the pressure below it.
+    pub field_pressure: bool,
+    pub field_velocity: bool,
+    pub body_pressure: bool,
+    pub body_velocity: bool,
+}
+
+impl Default for FirstOrder {
+    fn default() -> Self {
+        Self {
+            radiation: true,
+            diffraction: true,
+            diffraction_formulation: Formulation::Scattered,
+            motion: false,
+            field_pressure: true,
+            field_velocity: false,
+            body_pressure: false,
+            body_velocity: false,
+        }
+    }
+}
+
+/// The engine's `second_order`: the mean drifts, the QTFs and the free surface of the potential
+/// QTF. An `Option` None is the engine's `"auto"`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecondOrder {
+    pub drift_pressure_integration: bool,
+    pub drift_control_surface: bool,
+    pub drift_momentum_conservation: bool,
+    /// Every pair of two headings of every drift, not only each heading with itself.
+    pub drift_bidirectional: bool,
+    /// The Kochin angles of the momentum drift; None: the engine's choice.
+    pub drift_momentum_conservation_angles: Option<i64>,
+    pub qtf_quadratic_pressure_integration: bool,
+    pub qtf_quadratic_control_surface: bool,
+    pub qtf_potential_direct: bool,
+    pub qtf_potential_indirect: bool,
+    /// Newman's approximation of the difference-frequency QTF from the drifts switched on.
+    pub qtf_newman: bool,
+    pub qtf_newman_average: NewmanAverage,
+    /// Every pair of two headings of the QTFs, not only each heading with itself.
+    pub qtf_bidirectional: bool,
+    pub qtf_difference: bool,
+    pub qtf_sum: bool,
+    pub free_surface_method: FreeSurfaceMethod,
+    /// Panels, cells: m.
+    pub free_surface_panel_size: Option<f64>,
+    /// Panels, cells: m.
+    pub free_surface_inner_radius: Option<f64>,
+    /// Mesh: a library mesh of panels in z = 0, global coordinates, every record.
+    #[serde(skip)]
+    pub free_surface_mesh: Option<Arc<Mesh>>,
+    /// Mesh: Gauss points per side of each panel, 1..8.
+    pub free_surface_quadrature_points: i64,
+    pub quadrature_annuli: i64,
+    /// m.
+    pub quadrature_radius_step: Option<f64>,
+    pub quadrature_radial_nodes: i64,
+    pub quadrature_azimuthal_nodes: Option<i64>,
+    pub outer_circle_segments: Option<i64>,
+    pub expansion_order: Option<i64>,
+}
+
+impl Default for SecondOrder {
+    fn default() -> Self {
+        Self {
+            drift_pressure_integration: false,
+            drift_control_surface: false,
+            drift_momentum_conservation: false,
+            drift_bidirectional: false,
+            drift_momentum_conservation_angles: None,
+            qtf_quadratic_pressure_integration: false,
+            qtf_quadratic_control_surface: false,
+            qtf_potential_direct: false,
+            qtf_potential_indirect: false,
+            qtf_newman: false,
+            qtf_newman_average: NewmanAverage::Geometric,
+            qtf_bidirectional: false,
+            qtf_difference: true,
+            qtf_sum: true,
+            free_surface_method: FreeSurfaceMethod::Panels,
+            free_surface_panel_size: None,
+            free_surface_inner_radius: None,
+            free_surface_mesh: None,
+            free_surface_quadrature_points: 1,
+            quadrature_annuli: 0,
+            quadrature_radius_step: None,
+            quadrature_radial_nodes: 12,
+            quadrature_azimuthal_nodes: None,
+            outer_circle_segments: None,
+            expansion_order: None,
+        }
+    }
+}
+
+impl PartialEq for SecondOrder {
+    /// Every item; the free-surface mesh by its identity.
+    fn eq(&self, other: &Self) -> bool {
+        let id = |m: &Option<Arc<Mesh>>| m.as_ref().map(|m| m.id);
+        let bare = |s: &Self| SecondOrder { free_surface_mesh: None, ..s.clone() };
+        id(&self.free_surface_mesh) == id(&other.free_surface_mesh) && {
+            let (a, b) = (bare(self), bare(other));
+            serde_json::to_string(&a).ok() == serde_json::to_string(&b).ok()
+        }
+    }
+}
+
+impl SecondOrder {
+    /// Whether a QTF is switched on.
+    pub fn any_qtf(&self) -> bool {
+        self.qtf_quadratic_pressure_integration
+            || self.qtf_quadratic_control_surface
+            || self.qtf_potential_direct
+            || self.qtf_potential_indirect
+            || self.qtf_newman
+    }
+
+    /// Whether the potential QTF is switched on (it uses the free surface).
+    pub fn potential_qtf(&self) -> bool {
+        self.qtf_potential_direct || self.qtf_potential_indirect
+    }
+}
+
+/// `second_order/qtf_newman_average`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NewmanAverage {
+    #[default]
+    Geometric,
+    Arithmetic,
+}
+
+impl NewmanAverage {
+    pub const ALL: [NewmanAverage; 2] = [NewmanAverage::Geometric, NewmanAverage::Arithmetic];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            NewmanAverage::Geometric => "Geometric",
+            NewmanAverage::Arithmetic => "Arithmetic",
+        }
+    }
+
+    pub fn engine_name(self) -> &'static str {
+        match self {
+            NewmanAverage::Geometric => "geometric",
+            NewmanAverage::Arithmetic => "arithmetic",
+        }
+    }
+}
+
+/// `second_order/free_surface_method`: the panelled zone of the potential QTF's free surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FreeSurfaceMethod {
+    #[default]
+    Panels,
+    Cells,
+    Mesh,
+}
+
+impl FreeSurfaceMethod {
+    pub const ALL: [FreeSurfaceMethod; 3] =
+        [FreeSurfaceMethod::Panels, FreeSurfaceMethod::Cells, FreeSurfaceMethod::Mesh];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FreeSurfaceMethod::Panels => "Panels",
+            FreeSurfaceMethod::Cells => "Cells",
+            FreeSurfaceMethod::Mesh => "Mesh",
+        }
+    }
+
+    pub fn engine_name(self) -> &'static str {
+        match self {
+            FreeSurfaceMethod::Panels => "panels",
+            FreeSurfaceMethod::Cells => "cells",
+            FreeSurfaceMethod::Mesh => "mesh",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Matrix6 {
+    pub values: Vec<f64>,
+    pub edit_in_table: bool,
+}
+
+impl Matrix6 {
+    pub fn get(&self, row: usize, column: usize) -> f64 {
+        self.values.get(row * 6 + column).copied().unwrap_or(0.0)
+    }
+
+    pub fn set(&mut self, row: usize, column: usize, value: f64) {
+        if self.values.len() != 36 {
+            self.values.resize(36, 0.0);
+        }
+        self.values[row * 6 + column] = value;
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.values.iter().all(|v| *v == 0.0)
+    }
+
+    /// The 36 values, row-major (zeros when never edited).
+    pub fn full(&self) -> Vec<f64> {
+        (0..36).map(|i| self.values.get(i).copied().unwrap_or(0.0)).collect()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InteriorSurface {
+    pub method: InteriorMethod,
+    pub first_panel: i64,
+    pub last_panel: i64,
+    /// Further record ranges of the same mesh, after first..=last.
+    #[serde(default)]
+    pub more_ranges: Vec<[i64; 2]>,
+    /// Method Mesh: a mesh of the library, body coordinates.
+    #[serde(skip)]
+    pub mesh: Option<Arc<Mesh>>,
+}
+
+impl Default for InteriorSurface {
+    /// Detect, the engine's default: the wetted records lying in z = 0 (an analytic mesh's lid among
+    /// them) are the interior surface; none when there are none.
+    fn default() -> Self {
+        Self { method: InteriorMethod::Detect, first_panel: 1, last_panel: 1, more_ranges: Vec::new(), mesh: None }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PressureShape {
+    #[default]
+    Uniform,
+    SignX,
+    SignY,
+}
+
+impl PressureShape {
+    pub const ALL: [PressureShape; 3] = [PressureShape::Uniform, PressureShape::SignX, PressureShape::SignY];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PressureShape::Uniform => "Uniform",
+            PressureShape::SignX => "Sign of X",
+            PressureShape::SignY => "Sign of Y",
+        }
+    }
+
+    pub fn engine_name(self) -> &'static str {
+        match self {
+            PressureShape::Uniform => "uniform",
+            PressureShape::SignX => "sign_x",
+            PressureShape::SignY => "sign_y",
+        }
+    }
+}
+
+/// A pressure mode of a pressure surface: its shape and the additional stiffness and damping of
+/// its coordinate.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PressureMode {
+    pub shape: PressureShape,
+    pub stiffness: f64,
+    pub damping: f64,
+}
+
+/// The point a matrix is given about.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum MatrixOrigin {
+    #[default]
+    RotationCenter,
+    CenterOfGravity,
+    /// A body-local point.
+    Point(V3),
+}
+
+/// A polynomial piece of a generalized mode: the displacement u, v, w as terms
+/// c x^px y^py z^pz (rows c, px, py, pz, body-local) on a record range of the body's mesh, or on
+/// every record.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModePiece {
+    pub range: Option<[i64; 2]>,
+    /// Further record ranges of the same mesh, after first..=last.
+    #[serde(default)]
+    pub more_ranges: Vec<[i64; 2]>,
+    /// The terms of u, v and w.
+    pub terms: [Vec<[f64; 4]>; 3],
+}
+
+/// A displacement mode after the six rigid ones.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneralizedMode {
+    pub name: String,
+    /// The rigid mode (0 surge ... 5 yaw) whose parity it has, for the symmetry planes.
+    pub parity: usize,
+    pub pieces: Vec<ModePiece>,
+    /// The viewport shows the hull displaced by this many units of the coordinate; 0 off (display
+    /// only, not saved).
+    #[serde(skip)]
+    pub view_scale: f64,
+}
+
+impl Default for GeneralizedMode {
+    fn default() -> Self {
+        Self { name: "Generalized".into(), parity: 2, pieces: vec![ModePiece::default()], view_scale: 0.0 }
+    }
+}
+
+/// The (6 + G) x (6 + G) matrices of the rigid and generalized coordinates (row-major; the rigid
+/// block of the mass zero).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModeMatrices {
+    pub mass: Vec<f64>,
+    pub damping: Vec<f64>,
+    pub stiffness: Vec<f64>,
+    /// The matrix the table shows: 0 mass, 1 damping, 2 stiffness.
+    pub shown: usize,
+}
+
+impl ModeMatrices {
+    /// Each matrix resized to m x m, keeping the values that stay.
+    pub fn resize(&mut self, m: usize) {
+        for matrix in [&mut self.mass, &mut self.damping, &mut self.stiffness] {
+            let old = (matrix.len() as f64).sqrt() as usize;
+            let mut next = vec![0.0; m * m];
+            for r in 0..old.min(m) {
+                for c in 0..old.min(m) {
+                    next[r * m + c] = matrix[r * old + c];
+                }
+            }
+            *matrix = next;
+        }
+    }
+}
+
+/// A sheet inside a tank: a record range of the body's mesh, a dipole or a porous damper.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TankSheet {
+    pub first_panel: i64,
+    pub last_panel: i64,
+    /// Further record ranges of the same mesh, after first..=last.
+    #[serde(default)]
+    pub more_ranges: Vec<[i64; 2]>,
+    /// A dipole damper (porous) instead of a dipole.
+    pub damper: bool,
+    pub damping_factor: f64,
+}
+
+impl Default for TankSheet {
+    fn default() -> Self {
+        Self { first_panel: 1, last_panel: 1, more_ranges: Vec::new(), damper: false, damping_factor: 0.0 }
+    }
+}
+
+/// The ranges first..=last and the further ones, as a mesh reference holds them.
+pub fn record_ranges(first: i64, last: i64, more: &[[i64; 2]]) -> Vec<[i64; 2]> {
+    std::iter::once([first, last]).chain(more.iter().copied()).collect()
+}
+
+/// The external stiffness and damping between the forces of its body and the motions of another
+/// body (6 x 6 each, about the origins of the additional matrices of each body).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Coupling {
+    pub enabled: bool,
+    /// The other body, by name.
+    pub body: String,
+    pub stiffness: Matrix6,
+    pub damping: Matrix6,
+    /// The matrix shown in the table: 0 stiffness, 1 damping.
+    pub shown: usize,
+}
+
+impl Default for Coupling {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            body: String::new(),
+            stiffness: Matrix6::default(),
+            damping: Matrix6::default(),
+            shown: 0,
+        }
+    }
+}
+
+/// Dipole (thin-sheet) panels or a prescribed-pressure surface of one body.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PanelSurface {
+    pub enabled: bool,
+    pub source: SurfaceSource,
+    pub first_panel: i64,
+    pub last_panel: i64,
+    /// Further record ranges of the same mesh, after first..=last.
+    #[serde(default)]
+    pub more_ranges: Vec<[i64; 2]>,
+    #[serde(skip)]
+    pub mesh: Option<Arc<Mesh>>,
+    /// Dipole dampers only: the damping factor epsilon >= 0 of the porous sheet, m/s.
+    pub damping_factor: f64,
+    /// Pressure surfaces only: the pressure modes, the restoring coupling of a constant-volume
+    /// chamber and the numeric-compatibility convention (else variational).
+    pub pressure_modes: Vec<PressureMode>,
+    pub chamber_coupling: bool,
+    pub numeric_convention: bool,
+    /// Generated free-surface plates only: a point (x, y) of the water inside the waterline loop
+    /// the plate covers, in the body coordinates of the trimmed hull (the engine's `inside`).
+    pub inside: [f64; 2],
+    /// Generated free-surface plates only: the trimmed body whose waterline loop the plate covers
+    /// (a piston over a trimmed tube); None: the plate's own body, which then has a trim.
+    pub body: Option<String>,
+}
+
+impl Default for PanelSurface {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            source: SurfaceSource::PanelRange,
+            first_panel: 1,
+            last_panel: 1,
+            more_ranges: Vec::new(),
+            mesh: None,
+            damping_factor: 0.0,
+            pressure_modes: vec![PressureMode::default()],
+            chamber_coupling: true,
+            numeric_convention: false,
+            inside: [0.0, 0.0],
+            body: None,
+        }
+    }
+}
+
+impl PanelSurface {
+    /// An enabled external-mesh surface without its mesh.
+    pub fn missing_mesh(&self) -> bool {
+        self.enabled && self.source == SurfaceSource::ExternalMesh && self.mesh.is_none()
+    }
+}
+
+/// An internal tank: walls given by a record range of the body's mesh (normals into the tank
+/// fluid), its fluid and free surface.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tank {
+    pub enabled: bool,
+    /// The engine's name of the tank; empty: "tank_k" by its place.
+    pub name: String,
+    pub first_panel: i64,
+    pub last_panel: i64,
+    /// Further record ranges of the same mesh, after first..=last.
+    #[serde(default)]
+    pub more_ranges: Vec<[i64; 2]>,
+    /// The tank fluid's density relative to the water's; 0 an empty tank.
+    pub density_ratio: f64,
+    /// The body-local z of its free surface; None: the top of its walls.
+    pub surface_level: Option<f64>,
+    /// Dipoles and dipole dampers inside the tank.
+    pub sheets: Vec<TankSheet>,
+    /// Massless rigid plates in the tank's free surface (a deck, a full cover), moving with the
+    /// body: records of the body's mesh or a mesh of their own at the tank's surface level (the
+    /// engine's `free_surface_plates` of the tank).
+    pub free_surface_plates: Vec<PanelSurface>,
+}
+
+impl Tank {
+    /// The name the engine knows it by, at place `k` (zero-based) of its body's tanks.
+    pub fn engine_name(&self, k: usize) -> String {
+        if self.name.is_empty() { format!("tank_{}", k + 1) } else { self.name.clone() }
+    }
+}
+
+impl Default for Tank {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            name: String::new(),
+            first_panel: 1,
+            last_panel: 1,
+            more_ranges: Vec::new(),
+            density_ratio: 1.0,
+            surface_level: None,
+            sheets: Vec::new(),
+            free_surface_plates: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ControlMethod {
+    #[default]
+    Cylinder,
+    Ellipsoid,
+    Automatic,
+    /// A surface given as a mesh of the library.
+    Mesh,
+}
+
+impl ControlMethod {
+    pub const ALL: [ControlMethod; 4] =
+        [ControlMethod::Cylinder, ControlMethod::Ellipsoid, ControlMethod::Automatic, ControlMethod::Mesh];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ControlMethod::Cylinder => "Cylinder",
+            ControlMethod::Ellipsoid => "Ellipsoid",
+            ControlMethod::Automatic => "Automatic",
+            ControlMethod::Mesh => "Mesh",
+        }
+    }
+
+    pub fn engine_name(self) -> Option<&'static str> {
+        match self {
+            ControlMethod::Cylinder => Some("cylinder"),
+            ControlMethod::Ellipsoid => Some("ellipsoid"),
+            ControlMethod::Automatic => Some("automatic"),
+            ControlMethod::Mesh => None,
+        }
+    }
+}
+
+/// The control surface of a body (the control-surface drift): generated by the engine or given.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ControlSurface {
+    pub method: ControlMethod,
+    #[serde(skip)]
+    pub mesh: Option<Arc<Mesh>>,
+    /// Cylinder and automatic: the radius of the outer surface, m.
+    pub radius: f64,
+    /// Cylinder and automatic: the depth below the free surface, m.
+    pub depth: f64,
+    /// Cylinder: the radius of the waterline inside, m.
+    pub inner_radius: f64,
+    /// Ellipsoid: the semi-axes a, b, c, m.
+    pub semi_axes: V3,
+    /// Ellipsoid: the semi-axes of the waterline inside, m.
+    pub inner_semi_axes: [f64; 2],
+    /// The panel size of a generated surface, m.
+    pub panel_size: f64,
+    /// The waterline term on the body's waterline (a surface close to the body).
+    pub body_waterline_term: bool,
+    /// Automatic: the (x, y) polygon of the outer surface in the stored sector instead of the radius.
+    pub boundary: Option<Vec<[f64; 2]>>,
+    /// Automatic: further (x, y) polylines of the free surface.
+    pub partitions: Vec<Vec<[f64; 2]>>,
+}
+
+impl Default for ControlSurface {
+    fn default() -> Self {
+        Self {
+            method: ControlMethod::Cylinder,
+            mesh: None,
+            radius: 3.0,
+            depth: 2.0,
+            inner_radius: 2.0,
+            semi_axes: [3.0, 3.0, 2.0],
+            inner_semi_axes: [2.0, 2.0],
+            panel_size: 0.5,
+            body_waterline_term: false,
+            boundary: None,
+            partitions: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Body {
+    pub name: String,
+    pub visible: bool,
+    pub suppressed: bool,
+
+    /// Global translation of the body origin, m.
+    pub position: V3,
+    /// deg; display only: the engine accepts yaw only.
+    pub roll: f64,
+    /// deg; display only: the engine accepts yaw only.
+    pub pitch: f64,
+    /// deg
+    pub yaw: f64,
+    /// Body-local rotation centre R.
+    pub reference: V3,
+
+    /// A mesh of the project's library (`Project::meshes`).
+    #[serde(skip)]
+    pub mesh: Option<Arc<Mesh>>,
+    /// The stored records of the mesh the body uses (one-based, inclusive); None: every record.
+    pub mesh_range: Option<[i64; 2]>,
+    /// Records inside the range that no role takes (the engine leaves them out).
+    #[serde(default)]
+    pub mesh_gaps: Vec<[i64; 2]>,
+
+    pub mass_calculation: MassCalculation,
+    pub mass: f64,
+    /// From the engine (the body's hydrostatics), as the solve uses it.
+    #[serde(skip)]
+    pub displaced_volume: f64,
+    /// Body coordinates.
+    #[serde(skip)]
+    pub center_of_buoyancy: V3,
+    #[serde(skip)]
+    pub waterplane_area: f64,
+    /// The engine's message when it could not compute the hydrostatics.
+    #[serde(skip)]
+    pub hydrostatics_error: Option<String>,
+    /// Body-local.
+    pub center_of_gravity: V3,
+    /// Ixx, Ixy, Ixz, Iyy, Iyz, Izz about R.
+    pub inertia: [f64; 6],
+
+    pub modes: [bool; 6],
+    /// Added to the body by the user (a tree child); None: not given.
+    pub additional_damping: Option<Matrix6>,
+    pub additional_stiffness: Option<Matrix6>,
+    pub interior: InteriorSurface,
+    /// Thin (dipole) sheets of the body: Dipole 1, Dipole 2, ...
+    pub dipoles: Vec<PanelSurface>,
+    /// Prescribed-pressure surfaces: Pressure Surface 1, 2, ...; one uniform mode each.
+    pub pressure_surfaces: Vec<PanelSurface>,
+    /// Massless rigid plates in the free surface z = 0 (the engine's `free_surface_plates`):
+    /// records of the body mesh or a library mesh in body axes.
+    #[serde(default)]
+    pub free_surface_plates: Vec<PanelSurface>,
+    /// Porous sheets moving with the body: Dipole Damper 1, 2, ...
+    pub dipole_dampers: Vec<PanelSurface>,
+    /// Internal tanks: Tank 1, 2, ...
+    pub tanks: Vec<Tank>,
+    pub control_surface: Option<ControlSurface>,
+    /// Body-local points where the body outputs are given instead of the panels.
+    pub body_points: Option<Vec<V3>>,
+    /// The elevation (m), pitch and roll (deg) of the hull: the engine moves the mesh and cuts it at
+    /// the free surface. None: the mesh is the wetted surface as given.
+    pub trim: Option<V3>,
+    /// The exciting force of the motion equation by the Haskind relation (else pressure integration).
+    pub haskind: bool,
+    /// The points the additional stiffness and damping are given about.
+    pub stiffness_origin: MatrixOrigin,
+    pub damping_origin: MatrixOrigin,
+    /// Low order with body points: the nearest panel centroids averaged at each point.
+    pub body_point_neighbors: i64,
+    pub generalized_modes: Vec<GeneralizedMode>,
+    pub mode_matrices: Option<ModeMatrices>,
+    /// The external stiffness and damping against the motions of other bodies.
+    pub couplings: Vec<Coupling>,
+    /// The record ranges of its mesh that lids placed with it take (`Project::sync_placed_lids`).
+    #[serde(skip)]
+    pub placed_lids: Vec<[i64; 2]>,
+}
+
+impl Default for Body {
+    fn default() -> Self {
+        Self {
+            name: "Body".into(),
+            visible: true,
+            suppressed: false,
+            position: [0.0; 3],
+            roll: 0.0,
+            pitch: 0.0,
+            yaw: 0.0,
+            reference: [0.0; 3],
+            mesh: None,
+            mesh_range: None,
+            mesh_gaps: Vec::new(),
+            mass_calculation: MassCalculation::FromMesh,
+            mass: 0.0,
+            displaced_volume: 0.0,
+            center_of_buoyancy: [0.0; 3],
+            waterplane_area: 0.0,
+            hydrostatics_error: None,
+            center_of_gravity: [0.0; 3],
+            inertia: [0.0; 6],
+            modes: [true; 6],
+            additional_damping: None,
+            additional_stiffness: None,
+            interior: InteriorSurface::default(),
+            dipoles: Vec::new(),
+            pressure_surfaces: Vec::new(),
+            free_surface_plates: Vec::new(),
+            dipole_dampers: Vec::new(),
+            tanks: Vec::new(),
+            control_surface: None,
+            body_points: None,
+            trim: None,
+            haskind: false,
+            stiffness_origin: MatrixOrigin::RotationCenter,
+            damping_origin: MatrixOrigin::RotationCenter,
+            body_point_neighbors: 4,
+            generalized_modes: Vec::new(),
+            mode_matrices: None,
+            couplings: Vec::new(),
+            placed_lids: Vec::new(),
+        }
+    }
+}
+
+impl Body {
+    /// Recomputes the displaced volume, centre of buoyancy and waterplane area with the engine,
+    /// and the mass when it is derived from the mesh.
+    pub fn update_mesh_properties(&mut self, density: f64, gravity: f64) {
+        self.hydrostatics_error = None;
+        match &self.mesh {
+            None => {
+                self.displaced_volume = 0.0;
+                self.center_of_buoyancy = [0.0; 3];
+                self.waterplane_area = 0.0;
+            }
+            Some(mesh) => match crate::engine_model::body_hydrostatics(
+                mesh,
+                &crate::engine_model::wetted_ranges(self).unwrap_or_default(),
+                self.reference,
+                density,
+                gravity,
+            ) {
+                Ok(h) => {
+                    self.displaced_volume = h.volume;
+                    self.center_of_buoyancy = h.cb;
+                    self.waterplane_area = h.wp_area;
+                }
+                Err(e) => {
+                    self.displaced_volume = 0.0;
+                    self.center_of_buoyancy = [0.0; 3];
+                    self.waterplane_area = 0.0;
+                    self.hydrostatics_error = Some(e);
+                }
+            },
+        }
+        if self.mass_calculation == MassCalculation::FromMesh {
+            self.mass = self.displaced_volume * density;
+        }
+    }
+
+    /// Whether the body has a geometry: its mesh, or a free-surface plate of a mesh of its own (a
+    /// body of plates alone takes the mesh of its first plate, the engine's rule).
+    pub fn has_geometry(&self) -> bool {
+        self.mesh.is_some()
+            || self.free_surface_plates.iter().any(|p| p.source == SurfaceSource::ExternalMesh && p.mesh.is_some())
+    }
+
+    pub fn has_roll_or_pitch(&self) -> bool {
+        self.roll.abs() > 1e-12 || self.pitch.abs() > 1e-12
+    }
+
+    /// The lid patch of an analytic mesh (one-based) that is left in the wetted surface: neither
+    /// the interior surface's range nor outside the body's panel range takes it. It would be solved
+    /// as hull at z = 0.
+    pub fn wetted_analytic_lid(&self) -> Option<i64> {
+        let lid = self.mesh.as_ref()?.analytic.as_ref()?.lid_patch()?;
+        let i = &self.interior;
+        // Detect takes the lid (a patch in z = 0); a Panel Range must name it
+        let interior = i.method == InteriorMethod::Detect
+            || (i.method == InteriorMethod::PanelRange
+                && record_ranges(i.first_panel, i.last_panel, &i.more_ranges)
+                    .iter()
+                    .any(|r| (r[0]..=r[1]).contains(&lid)));
+        let in_body = self.mesh_range.is_none_or(|r| (r[0]..=r[1]).contains(&lid));
+        (!interior && in_body).then_some(lid)
+    }
+
+    /// The interior surface follows the lid patch of an analytic mesh made in the GUI: the body
+    /// that takes `mesh` (replacing `previous`) gets the lid as its interior surface when it had
+    /// none or the previous mesh's lid, and goes back to Detect when the new mesh has none. Detect
+    /// (the default) takes the lid by itself and stays.
+    pub fn follow_analytic_lid(&mut self, previous: Option<&Mesh>, mesh: &Mesh) {
+        let old_lid = previous.and_then(|m| m.analytic.as_ref()).and_then(|s| s.lid_patch());
+        let new_lid = mesh.analytic.as_ref().and_then(|s| s.lid_patch());
+        let i = &mut self.interior;
+        let on_old_lid = old_lid.is_some_and(|l| {
+            i.method == InteriorMethod::PanelRange
+                && i.first_panel == l
+                && i.last_panel == l
+                && i.more_ranges.is_empty()
+        });
+        if !(i.method == InteriorMethod::None || on_old_lid) {
+            return;
+        }
+        match new_lid {
+            Some(l) => {
+                i.method = InteriorMethod::PanelRange;
+                (i.first_panel, i.last_panel) = (l, l);
+                i.more_ranges.clear();
+            }
+            None if on_old_lid => i.method = InteriorMethod::Detect,
+            None => {}
+        }
+    }
+
+    /// Body-local point to global coordinates (roll, then pitch, then yaw, then translation).
+    pub fn to_global(&self, p: V3) -> V3 {
+        let (r, q, y) = (self.roll.to_radians(), self.pitch.to_radians(), self.yaw.to_radians());
+        let (cr, sr, cp, sp, cy, sy) = (r.cos(), r.sin(), q.cos(), q.sin(), y.cos(), y.sin());
+        let (x1, y1, z1) = (p[0], cr * p[1] - sr * p[2], sr * p[1] + cr * p[2]);
+        let (x2, y2, z2) = (cp * x1 + sp * z1, y1, -sp * x1 + cp * z1);
+        [cy * x2 - sy * y2 + self.position[0], sy * x2 + cy * y2 + self.position[1], z2 + self.position[2]]
+    }
+
+    /// A global point in the body's axes (the inverse of `to_global`).
+    pub fn to_local(&self, p: V3) -> V3 {
+        let (r, q, y) = (self.roll.to_radians(), self.pitch.to_radians(), self.yaw.to_radians());
+        let (cr, sr, cp, sp, cy, sy) = (r.cos(), r.sin(), q.cos(), q.sin(), y.cos(), y.sin());
+        let (x, yy, z) = (p[0] - self.position[0], p[1] - self.position[1], p[2] - self.position[2]);
+        let (x2, y2, z2) = (cy * x + sy * yy, -sy * x + cy * yy, z);
+        let (x1, y1, z1) = (cp * x2 - sp * z2, y2, sp * x2 + cp * z2);
+        [x1, cr * y1 + sr * z1, -sr * y1 + cr * z1]
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DampingLid {
+    pub name: String,
+    pub visible: bool,
+    pub suppressed: bool,
+    /// Global coordinates.
+    #[serde(skip)]
+    pub mesh: Option<Arc<Mesh>>,
+    pub damping_factor: f64,
+    /// The body whose position and yaw place the lid: the lid is then the records `range` of that
+    /// body's mesh (the engine's rule), and the body's wetted surface leaves them out.
+    pub placed_with: Option<String>,
+    pub range: [i64; 2],
+    /// Further record ranges of the same mesh, after first..=last.
+    #[serde(default)]
+    pub more_ranges: Vec<[i64; 2]>,
+}
+
+impl Default for DampingLid {
+    fn default() -> Self {
+        Self {
+            name: "Lid".into(),
+            visible: true,
+            suppressed: false,
+            mesh: None,
+            damping_factor: 1.0,
+            placed_with: None,
+            range: [1, 1],
+            more_ranges: Vec::new(),
+        }
+    }
+}
+
+impl DampingLid {
+    pub fn is_active(&self) -> bool {
+        !self.suppressed && (self.mesh.is_some() || self.placed_with.is_some())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FieldPoints {
+    pub enabled: bool,
+    /// How the points are laid out (`field_layout`); the x and y rows serve Cartesian.
+    pub layout: GridLayout,
+    pub x_start: f64,
+    pub x_end: f64,
+    pub x_count: i64,
+    pub y_start: f64,
+    pub y_end: f64,
+    pub y_count: i64,
+    pub z: f64,
+    /// Further depths of the same grid.
+    pub extra_levels: Vec<f64>,
+    /// None: the exterior fluid; else every point lies in this internal tank.
+    pub tank: Option<TankRef>,
+    /// Some: the points one by one, each with its tank, instead of the grid.
+    #[serde(default)]
+    pub list: Option<Vec<ListedPoint>>,
+    /// Polar: the centre of the rings (global x, y).
+    pub centre: [f64; 2],
+    /// Polar: the radii of the rings; Body-Fitted: their distance outside the body's section.
+    pub radial_start: f64,
+    pub radial_end: f64,
+    pub radial_count: i64,
+    /// Polar and Body-Fitted: the angles about the centre, deg from +x (a whole turn closes).
+    pub angle_start: f64,
+    pub angle_end: f64,
+    pub angle_count: i64,
+    /// The body a Body-Fitted grid follows (Polar: the body Fit to Body uses); "" the first.
+    pub fitted_body: String,
+    /// Body-Fitted: the rings follow the convex hull of the body's section (one outline about
+    /// several columns) instead of the section itself.
+    pub convex: bool,
+    /// Body-Fitted: rings between the centre and the outline as well, dividing its radius evenly
+    /// (the water between columns; points inside the body are left out by the engine's rules).
+    pub inside_rings: i64,
+    /// Body-Fitted: the section of that body at Z (`Project::update_field_profile`), kept with the
+    /// grid so that results files rebuild it.
+    pub profile: Option<Profile>,
+}
+
+/// A field point given by itself, with the internal tank it lies in (None: the exterior fluid).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ListedPoint {
+    pub point: V3,
+    pub tank: Option<TankRef>,
+}
+
+/// An internal tank by its body's name and its place among the body's tanks (one-based).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TankRef {
+    pub body: String,
+    pub tank: usize,
+}
+
+impl Default for FieldPoints {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            x_start: -10.0,
+            x_end: 10.0,
+            x_count: 41,
+            y_start: -10.0,
+            y_end: 10.0,
+            y_count: 41,
+            z: 0.0,
+            extra_levels: Vec::new(),
+            tank: None,
+            list: None,
+            layout: GridLayout::Cartesian,
+            centre: [0.0, 0.0],
+            radial_start: 1.0,
+            radial_end: 10.0,
+            radial_count: 19,
+            angle_start: 0.0,
+            angle_end: 360.0,
+            angle_count: 72,
+            fitted_body: String::new(),
+            convex: false,
+            inside_rings: 0,
+            profile: None,
+        }
+    }
+}
+
+impl FieldPoints {
+    /// Row-major in x, then y (Polar and Body-Fitted: ring by ring along each angle, then the
+    /// next angle), level by level; empty when disabled.
+    pub fn generate(&self) -> Vec<V3> {
+        if !self.enabled {
+            return Vec::new();
+        }
+        if let Some(list) = &self.list {
+            return list.iter().map(|p| p.point).collect();
+        }
+        if self.layout != GridLayout::Cartesian {
+            let plan = self.plan_nodes();
+            return self.levels().into_iter().flat_map(|z| plan.iter().map(move |p| [p[0], p[1], z])).collect();
+        }
+        if self.x_count <= 0 || self.y_count <= 0 {
+            return Vec::new();
+        }
+        let xs = linspace(self.x_start, self.x_end, self.x_count);
+        let ys = linspace(self.y_start, self.y_end, self.y_count);
+        self.levels()
+            .into_iter()
+            .flat_map(|z| {
+                let xs = &xs;
+                ys.iter().flat_map(move |&y| xs.iter().map(move |&x| [x, y, z]))
+            })
+            .collect()
+    }
+
+    /// The depths of the grid: Z, then the extra levels; of a list, its depths in order.
+    pub fn levels(&self) -> Vec<f64> {
+        if let Some(list) = &self.list {
+            let mut out: Vec<f64> = Vec::new();
+            for p in list {
+                if !out.iter().any(|z| (p.point[2] - z).abs() <= 1e-9 * z.abs().max(1.0)) {
+                    out.push(p.point[2]);
+                }
+            }
+            return out;
+        }
+        std::iter::once(self.z).chain(self.extra_levels.iter().copied()).collect()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WaveHeadings {
+    pub start: f64,
+    pub end: f64,
+    pub count: i64,
+}
+
+impl Default for WaveHeadings {
+    fn default() -> Self {
+        Self { start: 0.0, end: 360.0, count: 1 }
+    }
+}
+
+impl WaveHeadings {
+    pub fn values(&self) -> Vec<f64> {
+        linspace(self.start, self.end, self.count)
+    }
+}
+
+/// Frequencies are edited either through Start/End/Count or row by row. `inputs` hold the primary
+/// column (rad/s or s, depending on the input type).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WaveFrequencies {
+    pub input_type: WaveInputType,
+    pub edit_in_table: bool,
+    pub start: f64,
+    pub end: f64,
+    pub count: i64,
+    pub inputs: Vec<f64>,
+    /// Also the added mass at omega = 0 and at omega = inf (the engine's limits).
+    pub zero_limit: bool,
+    pub infinite_limit: bool,
+}
+
+impl Default for WaveFrequencies {
+    fn default() -> Self {
+        let mut f = Self {
+            input_type: WaveInputType::Frequency,
+            edit_in_table: false,
+            start: 0.1,
+            end: 2.0,
+            count: 20,
+            inputs: Vec::new(),
+            zero_limit: false,
+            infinite_limit: false,
+        };
+        f.rebuild();
+        f
+    }
+}
+
+impl WaveFrequencies {
+    /// Regenerates the rows from start, end and count.
+    pub fn rebuild(&mut self) {
+        self.inputs = linspace(self.start, self.end, self.count);
+    }
+
+    /// Keeps the rows and appends copies of the last one (table edit mode).
+    pub fn resize(&mut self) {
+        let fill = self.inputs.last().copied().unwrap_or(self.start);
+        self.inputs.resize(self.count.max(0) as usize, fill);
+    }
+
+    /// Converts the existing rows to the other form.
+    pub fn set_input_type(&mut self, input_type: WaveInputType) {
+        if input_type == self.input_type {
+            return;
+        }
+        let omegas = self.omegas();
+        self.input_type = input_type;
+        self.inputs =
+            omegas.iter().map(|w| if input_type == WaveInputType::Frequency { *w } else { TAU / w }).collect();
+        if let (Some(first), Some(last)) = (self.inputs.first(), self.inputs.last()) {
+            (self.start, self.end) = (*first, *last);
+        }
+    }
+
+    pub fn omega(&self, row: usize) -> f64 {
+        let value = self.inputs[row].max(1e-9);
+        match self.input_type {
+            WaveInputType::Frequency => value,
+            WaveInputType::Period => TAU / value,
+        }
+    }
+
+    pub fn period(&self, row: usize) -> f64 {
+        TAU / self.omega(row)
+    }
+
+    pub fn omegas(&self) -> Vec<f64> {
+        (0..self.inputs.len()).map(|i| self.omega(i)).collect()
+    }
+}
+
+const TAU: f64 = std::f64::consts::TAU;
+
+pub fn linspace(start: f64, end: f64, count: i64) -> Vec<f64> {
+    match count {
+        ..=0 => Vec::new(),
+        1 => vec![start],
+        n => {
+            let step = (end - start) / (n - 1) as f64;
+            (0..n).map(|i| start + step * i as f64).collect()
+        }
+    }
+}
+
+/// A mesh of the project's library: read once, used by any number of bodies, surfaces and lids.
+#[derive(Clone, Debug)]
+pub struct MeshEntry {
+    /// Unique among the project's meshes; the name of its mesh object in the model.
+    pub name: String,
+    pub mesh: Arc<Mesh>,
+}
+
+/// The engine's `waves`: the wave frequencies (or periods) and the headings.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Waves {
+    pub frequencies: WaveFrequencies,
+    pub headings: WaveHeadings,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Project {
+    /// The mesh library, in tree order.
+    pub meshes: Vec<MeshEntry>,
+    pub bodies: Vec<Body>,
+    pub lids: Vec<DampingLid>,
+    /// The fixed dampers: porous sheets at rest, global coordinates, library meshes.
+    pub fixed_dampers: Vec<PanelSurface>,
+    pub environment: Environment,
+    pub options: Options,
+    pub first_order: FirstOrder,
+    pub second_order: SecondOrder,
+    pub field_points: FieldPoints,
+    pub waves: Waves,
+    pub body_sequence: u32,
+    pub lid_sequence: u32,
+}
+
+/// A name for a model object: letters, digits, `_` and `-` (the rest becomes `_`).
+pub fn object_name(hint: &str) -> String {
+    let name: String =
+        hint.trim().chars().map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
+    if name.is_empty() { "mesh".into() } else { name }
+}
+
+impl Project {
+    /// The library entry of a mesh, by its identity.
+    pub fn mesh_index(&self, mesh: &Arc<Mesh>) -> Option<usize> {
+        self.meshes.iter().position(|e| e.mesh.id == mesh.id)
+    }
+
+    /// The library name of a mesh.
+    pub fn mesh_name(&self, mesh: &Arc<Mesh>) -> Option<&str> {
+        self.mesh_index(mesh).map(|i| self.meshes[i].name.as_str())
+    }
+
+    /// A name not yet used in the library, from `hint`.
+    pub fn unique_mesh_name(&self, hint: &str) -> String {
+        let base = object_name(hint);
+        let mut name = base.clone();
+        let mut k = 2;
+        while self.meshes.iter().any(|e| e.name == name) {
+            name = format!("{base}_{k}");
+            k += 1;
+        }
+        name
+    }
+
+    /// Adds a mesh to the library (when it is not there yet) and returns its index.
+    pub fn add_mesh(&mut self, hint: &str, mesh: Arc<Mesh>) -> usize {
+        if let Some(i) = self.mesh_index(&mesh) {
+            return i;
+        }
+        let name = self.unique_mesh_name(hint);
+        self.meshes.push(MeshEntry { name, mesh });
+        self.meshes.len() - 1
+    }
+
+    /// Reads a GDF file into the library, named after the file.
+    pub fn import_mesh(&mut self, path: &std::path::Path) -> Result<usize, String> {
+        self.import_mesh_with(path, None)
+    }
+
+    /// `import_mesh` of a higher-order GDF file with the discretization chosen for it.
+    pub fn import_mesh_with(
+        &mut self,
+        path: &std::path::Path,
+        choice: Option<&crate::mesh::GdfDiscretization>,
+    ) -> Result<usize, String> {
+        let mesh = match choice {
+            Some(choice) => Mesh::load_gdf_with(path, choice)?,
+            None => Mesh::load(path)?,
+        };
+        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        Ok(self.add_mesh(&stem, mesh))
+    }
+
+    /// Who uses the library mesh `index`: "Body 1", "Body 1 dipole panels", "Lid 1".
+    pub fn mesh_users(&self, index: usize) -> Vec<String> {
+        let id = self.meshes[index].mesh.id;
+        let uses = |m: &Option<Arc<Mesh>>| m.as_ref().is_some_and(|m| m.id == id);
+        let mut users = Vec::new();
+        for b in &self.bodies {
+            if uses(&b.mesh) {
+                users.push(b.name.clone());
+            }
+            for (k, s) in b.dipoles.iter().enumerate() {
+                if uses(&s.mesh) {
+                    users.push(format!("{} Dipole {}", b.name, k + 1));
+                }
+            }
+            for (k, s) in b.pressure_surfaces.iter().enumerate() {
+                if uses(&s.mesh) {
+                    users.push(format!("{} Pressure Surface {}", b.name, k + 1));
+                }
+            }
+            for (k, s) in b.free_surface_plates.iter().enumerate() {
+                if uses(&s.mesh) {
+                    users.push(format!("{} Free Surface Plate {}", b.name, k + 1));
+                }
+            }
+            for (t, tank) in b.tanks.iter().enumerate() {
+                for (k, s) in tank.free_surface_plates.iter().enumerate() {
+                    if uses(&s.mesh) {
+                        users.push(format!("{} Tank {} Plate {}", b.name, t + 1, k + 1));
+                    }
+                }
+            }
+            for (k, s) in b.dipole_dampers.iter().enumerate() {
+                if uses(&s.mesh) {
+                    users.push(format!("{} Dipole Damper {}", b.name, k + 1));
+                }
+            }
+            if b.control_surface.as_ref().is_some_and(|c| uses(&c.mesh)) {
+                users.push(format!("{} Control Surface", b.name));
+            }
+            if b.interior.method == InteriorMethod::Mesh && uses(&b.interior.mesh) {
+                users.push(format!("{} interior surface", b.name));
+            }
+        }
+        users.extend(self.lids.iter().filter(|l| uses(&l.mesh)).map(|l| l.name.clone()));
+        for (k, s) in self.fixed_dampers.iter().enumerate() {
+            if uses(&s.mesh) {
+                users.push(format!("Fixed Damper {}", k + 1));
+            }
+        }
+        users
+    }
+
+    /// Replaces the library mesh `index` (a file read again) everywhere it is used.
+    pub fn replace_mesh(&mut self, index: usize, mesh: Arc<Mesh>) {
+        let previous = self.meshes[index].mesh.clone();
+        let old = previous.id;
+        for b in self.bodies.iter_mut().filter(|b| b.mesh.as_ref().is_some_and(|m| m.id == old)) {
+            b.follow_analytic_lid(Some(&previous), &mesh);
+        }
+        let swap = |m: &mut Option<Arc<Mesh>>| {
+            if m.as_ref().is_some_and(|x| x.id == old) {
+                *m = Some(mesh.clone());
+            }
+        };
+        for b in &mut self.bodies {
+            swap(&mut b.mesh);
+            for s in b
+                .dipoles
+                .iter_mut()
+                .chain(b.pressure_surfaces.iter_mut())
+                .chain(b.dipole_dampers.iter_mut())
+                .chain(b.free_surface_plates.iter_mut())
+                .chain(b.tanks.iter_mut().flat_map(|t| t.free_surface_plates.iter_mut()))
+            {
+                swap(&mut s.mesh);
+            }
+            if let Some(c) = &mut b.control_surface {
+                swap(&mut c.mesh);
+            }
+            swap(&mut b.interior.mesh);
+        }
+        for l in &mut self.lids {
+            swap(&mut l.mesh);
+        }
+        for s in &mut self.fixed_dampers {
+            swap(&mut s.mesh);
+        }
+        self.meshes[index].mesh = mesh;
+        self.update_mesh_properties();
+    }
+
+    /// Adds "Body N" and returns its index.
+    pub fn add_body(&mut self) -> usize {
+        self.body_sequence += 1;
+        self.bodies.push(Body { name: format!("Body {}", self.body_sequence), ..Body::default() });
+        self.bodies.len() - 1
+    }
+
+    /// Adds "Lid N" and returns its index.
+    pub fn add_lid(&mut self) -> usize {
+        self.lid_sequence += 1;
+        self.lids.push(DampingLid { name: format!("Lid {}", self.lid_sequence), ..DampingLid::default() });
+        self.lids.len() - 1
+    }
+
+    /// The non-suppressed bodies, in tree order.
+    pub fn active_bodies(&self) -> impl Iterator<Item = &Body> {
+        self.bodies.iter().filter(|b| !b.suppressed)
+    }
+
+    /// The body a body-fitted grid follows (or Polar's Fit to Body uses): by name, else the first
+    /// active body with a mesh.
+    pub fn field_body(&self) -> Option<&Body> {
+        let name = &self.field_points.fitted_body;
+        self.bodies
+            .iter()
+            .find(|b| !name.is_empty() && b.name == *name)
+            .or_else(|| self.active_bodies().find(|b| b.mesh.is_some()))
+    }
+
+    /// Keeps a body-fitted grid's section of its body at Z up to date (None for other layouts).
+    pub fn update_field_profile(&mut self) {
+        let profile = (self.field_points.layout == GridLayout::BodyFitted)
+            .then(|| self.field_body().and_then(|b| Profile::of_body(b, self.field_points.z, self.field_points.convex)))
+            .flatten();
+        if self.field_points.profile != profile {
+            self.field_points.profile = profile;
+        }
+    }
+
+    /// Polar rings about the field body's section at Z: the centre, the first ring a tenth of its
+    /// largest radius outside it, the last three times that radius out (counts unchanged).
+    pub fn fit_polar_grid(&mut self) -> bool {
+        let Some(p) = self.field_body().and_then(|b| Profile::of_body(b, self.field_points.z, true)) else {
+            return false;
+        };
+        let g = &mut self.field_points;
+        let r = p.max_radius();
+        g.centre = p.centre;
+        g.radial_start = r * 1.1;
+        g.radial_end = r * 3.0;
+        true
+    }
+
+    /// Gives every body the records its placed lids take (they leave its wetted surface).
+    pub fn sync_placed_lids(&mut self) {
+        for b in &mut self.bodies {
+            let ranges: Vec<[i64; 2]> = self
+                .lids
+                .iter()
+                .filter(|l| l.placed_with.as_deref() == Some(b.name.as_str()))
+                .flat_map(|l| record_ranges(l.range[0], l.range[1], &l.more_ranges))
+                .collect();
+            if b.placed_lids != ranges {
+                b.placed_lids = ranges;
+                // the wetted surface changed
+                b.hydrostatics_error = None;
+            }
+        }
+    }
+
+    /// Gives a body a new name, and every reference to it (placed lids, couplings, generated
+    /// plates over its waterline, the field points' tank) with it.
+    pub fn rename_body(&mut self, old: &str, new: &str) {
+        if old == new {
+            return;
+        }
+        for l in &mut self.lids {
+            if l.placed_with.as_deref() == Some(old) {
+                l.placed_with = Some(new.to_string());
+            }
+        }
+        for b in &mut self.bodies {
+            for c in &mut b.couplings {
+                if c.body == old {
+                    c.body = new.to_string();
+                }
+            }
+            for p in &mut b.free_surface_plates {
+                if p.body.as_deref() == Some(old) {
+                    p.body = Some(new.to_string());
+                }
+            }
+        }
+        let list = self.field_points.list.iter_mut().flatten().filter_map(|p| p.tank.as_mut());
+        for t in self.field_points.tank.iter_mut().chain(list) {
+            if t.body == old {
+                t.body = new.to_string();
+            }
+        }
+    }
+
+    /// Removes the references to a body about to be deleted: the couplings to it, the placement
+    /// of lids with it, the field points' tank in it.
+    pub fn forget_body(&mut self, name: &str) {
+        for b in &mut self.bodies {
+            b.couplings.retain(|c| c.body != name);
+            // a generated plate over its waterline: over the plate's own body's instead
+            for p in &mut b.free_surface_plates {
+                if p.body.as_deref() == Some(name) {
+                    p.body = None;
+                }
+            }
+        }
+        for l in &mut self.lids {
+            if l.placed_with.as_deref() == Some(name) {
+                l.placed_with = None;
+            }
+        }
+        if self.field_points.tank.as_ref().is_some_and(|t| t.body == name) {
+            self.field_points.tank = None;
+        }
+        for p in self.field_points.list.iter_mut().flatten() {
+            if p.tank.as_ref().is_some_and(|t| t.body == name) {
+                p.tank = None;
+            }
+        }
+    }
+
+    /// Keeps the field points' tank after tank `k` (zero-based) of `body` is deleted.
+    pub fn forget_tank(&mut self, body: &str, k: usize) {
+        let fix = |slot: &mut Option<TankRef>| {
+            if let Some(t) = slot
+                && t.body == body
+            {
+                if t.tank == k + 1 {
+                    *slot = None;
+                } else if t.tank > k + 1 {
+                    t.tank -= 1;
+                }
+            }
+        };
+        fix(&mut self.field_points.tank);
+        for p in self.field_points.list.iter_mut().flatten() {
+            fix(&mut p.tank);
+        }
+    }
+
+    /// The engine's name of a tank, "<body>/<tank>" (of a tank that does not exist, a name the
+    /// engine finds no tank by).
+    pub fn tank_path(&self, t: &TankRef) -> String {
+        let k = t.tank.saturating_sub(1);
+        let tank = self.bodies.iter().find(|b| b.name == t.body).and_then(|b| b.tanks.get(k));
+        format!("{}/{}", t.body, tank.map_or(format!("tank_{}", k + 1), |x| x.engine_name(k)))
+    }
+
+    /// The tank of every generated field point as the engine names it ("" the exterior fluid);
+    /// None: every point in the exterior.
+    pub fn field_point_tanks(&self) -> Option<Vec<String>> {
+        let g = &self.field_points;
+        let tanks: Vec<String> = match &g.list {
+            Some(list) => list.iter().map(|p| p.tank.as_ref().map(|t| self.tank_path(t)).unwrap_or_default()).collect(),
+            None => {
+                let tank = g.tank.as_ref().map(|t| self.tank_path(t))?;
+                vec![tank; g.generate().len()]
+            }
+        };
+        tanks.iter().any(|t| !t.is_empty()).then_some(tanks)
+    }
+
+    /// Every internal tank of the bodies, in order, with the engine's name.
+    pub fn all_tanks(&self) -> Vec<(TankRef, String)> {
+        self.bodies
+            .iter()
+            .flat_map(|b| {
+                (0..b.tanks.len()).map(|k| {
+                    let t = TankRef { body: b.name.clone(), tank: k + 1 };
+                    let path = self.tank_path(&t);
+                    (t, path)
+                })
+            })
+            .collect()
+    }
+
+    /// Recomputes every body's mesh properties (after a density or gravity change).
+    pub fn update_mesh_properties(&mut self) {
+        let (density, gravity) = (self.environment.density, self.environment.gravity);
+        for body in &mut self.bodies {
+            body.update_mesh_properties(density, gravity);
+        }
+    }
+
+    /// The next free sequence numbers after names read from a file ("Body 3" → 3).
+    pub fn renumber(&mut self) {
+        let max = |names: Vec<&str>, prefix: &str| {
+            names.iter().filter_map(|n| n.strip_prefix(prefix)?.trim().parse::<u32>().ok()).max().unwrap_or(0)
+        };
+        self.body_sequence =
+            max(self.bodies.iter().map(|b| b.name.as_str()).collect(), "Body").max(self.bodies.len() as u32);
+        self.lid_sequence = max(self.lids.iter().map(|l| l.name.as_str()).collect(), "Lid").max(self.lids.len() as u32);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frequencies_convert_between_frequency_and_period() {
+        let mut f = WaveFrequencies { start: 0.5, end: 2.0, count: 4, ..WaveFrequencies::default() };
+        f.rebuild();
+        f.set_input_type(WaveInputType::Period);
+        assert!((f.inputs[0] - TAU / 0.5).abs() < 1e-12);
+        assert!((f.omega(3) - 2.0).abs() < 1e-12);
+        f.set_input_type(WaveInputType::Frequency);
+        assert!((f.inputs[1] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn table_resize_keeps_rows_and_pads_with_the_last() {
+        let mut f = WaveFrequencies { start: 1.0, end: 2.0, count: 2, ..WaveFrequencies::default() };
+        f.rebuild();
+        f.inputs[1] = 3.0;
+        f.count = 4;
+        f.resize();
+        assert_eq!(f.inputs, vec![1.0, 3.0, 3.0, 3.0]);
+        f.count = 1;
+        f.resize();
+        assert_eq!(f.inputs, vec![1.0]);
+    }
+
+    #[test]
+    fn headings_are_linear_and_names_sequential() {
+        assert_eq!(WaveHeadings { start: 0.0, end: 90.0, count: 3 }.values(), vec![0.0, 45.0, 90.0]);
+        let mut p = Project::default();
+        p.add_body();
+        p.add_body();
+        p.bodies.remove(0);
+        p.add_body();
+        assert_eq!(p.bodies.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Body 2", "Body 3"]);
+        assert_eq!(p.lids.len(), 0);
+        p.add_lid();
+        assert_eq!(p.lids[0].name, "Lid 1");
+    }
+
+    #[test]
+    fn grid_is_row_major_in_x() {
+        let g = FieldPoints {
+            enabled: true,
+            x_start: 0.0,
+            x_end: 1.0,
+            x_count: 2,
+            y_start: 5.0,
+            y_end: 6.0,
+            y_count: 2,
+            z: -1.0,
+            ..FieldPoints::default()
+        };
+        assert_eq!(g.generate(), vec![[0.0, 5.0, -1.0], [1.0, 5.0, -1.0], [0.0, 6.0, -1.0], [1.0, 6.0, -1.0]]);
+        assert!(FieldPoints::default().generate().is_empty());
+    }
+
+    #[test]
+    fn body_to_global_applies_yaw_then_translation() {
+        let b = Body { yaw: 90.0, position: [10.0, 0.0, 0.0], ..Body::default() };
+        let g = b.to_global([1.0, 0.0, 0.0]);
+        assert!((g[0] - 10.0).abs() < 1e-12 && (g[1] - 1.0).abs() < 1e-12);
+    }
+}

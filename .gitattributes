@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+
+*.exe binary
+*.png binary
+# The imported engine is kept byte for byte (IMPORT.json holds its SHA-256 sums).
+engine/** -text
+*.hbm binary
+*.hbr binary
