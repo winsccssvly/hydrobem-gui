@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/reference/inputs-meshes.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/reference/inputs-meshes.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Inputs: meshes
 
 ## 1. Low-order mesh (kind `panels`)

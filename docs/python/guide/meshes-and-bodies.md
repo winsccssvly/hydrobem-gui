@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/meshes-and-bodies.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/meshes-and-bodies.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Meshes and bodies
 
 A body in HydroBEM is defined by two things: its geometry, given as a mesh, and its properties as
@@ -242,6 +242,14 @@ m.bodies["cylinder"].couplings.add(body="spar", stiffness=kc)
 A coupling acts only on the rows of the body it belongs to; give the opposite direction as a
 coupling of the other body. The rules are in
 [reference/inputs-bodies §1.3](../reference/inputs-bodies.md#13-couplings-between-bodies).
+
+Bodies may touch, such as a float that slides on the column of a spar. No water lies where they
+touch, so neither wetted surface may cover the contact. Meshes made as closed bodies each cover
+it, and then the same surface counts twice with opposite normals. The results are wrong without
+any visible error: the radiation coefficients lose their symmetry. The model check warns of it
+(code 10). Leave the contact out of both bodies with `ranges`. Each body is then open where it
+touches the other, so expect the warnings of an open surface; give the masses (not `"displaced"`)
+and check the hydrostatics of each body.
 
 ## 7. A trimmed body
 

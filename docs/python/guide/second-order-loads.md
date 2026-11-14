@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/second-order-loads.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/second-order-loads.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Mean drift and second-order loads
 
 The linear results describe forces at the frequencies of the waves. A moored structure also feels

@@ -80,7 +80,7 @@ These are known constraints or unfinished work, not hidden features.
 - Whether a field point lies inside a body is the engine's solid-angle test: a point within about a
   gap width of the hull can occasionally get the wrong verdict. Points closer to a panel than its
   size are kept but warned of; Field Points Details count them.
-- The Python API is HydroBEM's Python package as copied at HydroBEM `ee6c71b`, on the DLL: a
+- The Python API is HydroBEM's Python package as copied at HydroBEM `2def9bb`, on the DLL: a
   later change of HydroBEM's package appears here only when copied again. Objects types the DLL
   lists without items (the model) are ordered by a rule (before the first type they
   hold): the C ABI gives no order of the types. `show(model)` without `wait` leaves its temporary model

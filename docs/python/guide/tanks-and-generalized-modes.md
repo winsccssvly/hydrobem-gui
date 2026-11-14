@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/tanks-and-generalized-modes.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/tanks-and-generalized-modes.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Tanks and generalized modes
 
 The six rigid modes describe a body only as long as everything in it moves together. Liquid cargo

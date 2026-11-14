@@ -31,7 +31,7 @@ build (`hb_build_info`), not that of the import.
 
 The engine requires AVX2 and FMA. `.cargo/config.toml` sets `+avx2,+fma` (HydroBEM's own flags);
 HydroBEM.exe refuses to start without them. The C runtime is linked as a DLL, as HydroBEM's (since
-HydroBEM `ee6c71b`): `hydrobem.dll` and HydroBEM.exe import `vcruntime140.dll` and the Universal C
+HydroBEM 0.3.0): `hydrobem.dll` and HydroBEM.exe import `vcruntime140.dll` and the Universal C
 Runtime (`api-ms-win-crt-*`), which Python and Windows provide (`REQUIREMENTS.md`).
 
 ## Threads and progress

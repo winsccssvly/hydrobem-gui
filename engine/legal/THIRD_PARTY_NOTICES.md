@@ -12,7 +12,7 @@ fetched by cargo (`Cargo.lock`), not committed, and link no other library.
 
 | Component | Use | Licence |
 |---|---|---|
-| faer 0.24 (Rust crate) and its dependencies (faer-traits, gemm, nano-gemm, private-gemm-x86, pulp, dyn-stack, spindle, qd, equator, generativity, reborrow, bytemuck, libm, raw-cpuid, atomic-wait, half, num_cpus) | the dense linear algebra of the engine (`linalg.rs`): the LU of each panel, the triangular solves and the matrix products of the blocked complex LU, the real LU and its solve | MIT, or MIT or Apache-2.0 (bytemuck also Zlib); atomic-wait BSD-2-Clause (with windows-sys and windows_x86_64_msvc 0.42, MIT or Apache-2.0); libm contains code derived from musl libc and FreeBSD (MIT and permissive notices, carried in `licenses/rust-crates.txt`); rustc-hash MIT or Apache-2.0; faer contains code derived from Eigen (MPL-2.0) and from LAPACK and SuiteSparse AMD/COLAMD (BSD-3-Clause), whose notices it carries |
+| faer 0.24 (Rust crate) and its dependencies (faer-traits, gemm, nano-gemm, private-gemm-x86, pulp, dyn-stack, spindle, qd, equator, generativity, reborrow, bytemuck, libm, raw-cpuid, atomic-wait, half, num_cpus) | the dense linear algebra of the engine (`linalg.rs`): the LU of each panel, the triangular solves and the matrix products of the blocked complex LU, the real LU and its solve | MIT, or MIT or Apache-2.0 (bytemuck also Zlib); zerocopy (a dependency of half) BSD-2-Clause or Apache-2.0 or MIT; atomic-wait BSD-2-Clause (with windows-sys and windows_x86_64_msvc 0.42, MIT or Apache-2.0); libm contains code derived from musl libc and FreeBSD (MIT and permissive notices, carried in `licenses/rust-crates.txt`); rustc-hash MIT or Apache-2.0; faer contains code derived from Eigen (MPL-2.0) and from LAPACK and SuiteSparse AMD/COLAMD (BSD-3-Clause), whose notices it carries |
 | rayon 1.12 (Rust crate) and its dependencies (rayon-core, crossbeam, crossbeam-channel, crossbeam-deque, crossbeam-epoch, crossbeam-queue, crossbeam-utils, either) | the thread pools of a solve | MIT or Apache-2.0; crossbeam-channel contains code derived from Go (BSD-3-Clause) and from matching.go (CC-BY-3.0), whose licences it carries (`licenses/rust-crates.txt`) |
 | num-complex 0.4 (Rust crate) and num-traits, num-integer | the complex types `Complex32`, `Complex64` of the engine | MIT or Apache-2.0 |
 | PyO3 0.29, numpy 0.29 (Rust crates) and their dependencies (ndarray, matrixmultiply, libc, once_cell, ...) | the Python extension module (`crates/hydrobem-python`) | MIT or Apache-2.0; numpy BSD-2-Clause |
@@ -27,6 +27,12 @@ licence, authors and the licence and notice files of its package (for faer also 
 code it derives from: LAPACK, Eigen, SuiteSparse); `scripts/gen_crate_licenses.py` writes it from
 `Cargo.lock`. The Python wheel carries it, `LICENSE`, `NOTICE` and this file through
 `license-files` in `pyproject.toml` (installed under `hydrobem-*.dist-info/licenses/`).
+
+The source code of every crate, including the files of faer under the Mozilla Public License 2.0
+(the code derived from Eigen), is available in the form compiled into the binaries from crates.io
+(`https://crates.io/crates/<name>/<version>`, the versions of `Cargo.lock` and
+`licenses/rust-crates.txt`) and from the repository named for each crate in
+`licenses/rust-crates.txt` (faer 0.24.4: `https://codeberg.org/sarah-quinones/faer`).
 
 ## Runtime and development dependencies (Python)
 

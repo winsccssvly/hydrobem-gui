@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/getting-started.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/getting-started.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Getting started
 
 HydroBEM computes the linear and second-order wave loads on floating and fixed bodies: added mass

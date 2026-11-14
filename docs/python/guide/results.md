@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/results.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/results.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Reading results
 
 A solve returns a results object that holds every quantity it computed as NumPy arrays. This page

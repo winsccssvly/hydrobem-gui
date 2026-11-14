@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/special-surfaces.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/special-surfaces.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Special surfaces
 
 Real structures have parts that an ordinary wetted surface does not describe well: heave plates a

@@ -4,13 +4,13 @@
 
 - Application: Rust 2024 (toolchain 1.99.1), egui/eframe 0.37 with wgpu 30, Windows x64. Graphs:
   egui_plot 0.38. 3D: an own wgpu renderer (offscreen 4x MSAA with depth) in an egui paint callback.
-- Engine: HydroBEM's `hydrobem.dll` (HydroBEM 0.3.0 at `ee6c71b`, API 56), the C ABI of its engine
+- Engine: HydroBEM's `hydrobem.dll` (HydroBEM 0.3.0 at `2def9bb`, API 57), the C ABI of its engine
   (ABI **8**, `engine/hydrobem.h`), built by HydroBEM, imported into `engine/` (`engine/IMPORT.json`) and loaded by `HydroBEM.exe` at
   run time from beside it (since 2026-11-04; before, the engine crate was vendored and compiled
   in). `crates/hydrobem-engine` is the safe binding. The earlier C++ GUI, which bound C API 21, was
   replaced by the Rust rewrite (merged 2026-11-01).
 - Product: one Python wheel `hydrobem-gui` = the Python API `hydrobem_gui` (HydroBEM's Python
-  package copied at `ee6c71b`, its PyO3 core replaced by ctypes over the DLL: `python/`), the GUI
+  package copied at `2def9bb`, its PyO3 core replaced by ctypes over the DLL: `python/`), the GUI
   and the DLL (`scripts/build_wheel.py`). Python is required; HydroBEM stays the development
   project (Rust + PyO3), this repository only copies its DLL (and, by hand, its Python code).
 - CAD: cad2bem, a separate program with its own GUI, converts CAD files into geometry files

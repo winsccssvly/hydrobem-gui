@@ -12,9 +12,9 @@ of the work before it is not published.
 
 ### Added
 - **The product**: one Python wheel, `hydrobem-gui`: the Python API `hydrobem_gui` (HydroBEM's
-  Python package at `ee6c71b`, its PyO3 core replaced by `_core.py`, ctypes over the DLL), the GUI
+  Python package at `2def9bb`, its PyO3 core replaced by `_core.py`, ctypes over the DLL), the GUI
   `HydroBEM.exe` (Rust, egui/eframe and wgpu) and HydroBEM's engine `hydrobem.dll` (HydroBEM
-  0.3.0 at `ee6c71b`, C ABI 8, Rust API 56, model record 13, results format 5) in its `bin`;
+  0.3.0 at `2def9bb`, C ABI 8, Rust API 57, model record 13, results format 5) in its `bin`;
   `hydrobem_gui.show(model)` and the `hydrobem-gui` command open the GUI.
 - **The engine's trees**: the project tree in the engine's order (Meshes, Bodies, Lids, Fixed
   Dampers, Environment with Omegas or Periods and Headings, First Order with Field Points, Second
@@ -116,6 +116,14 @@ of the work before it is not published.
   and a Tank has Free Surface Plates (records of the body mesh or a mesh of its own at the tank's
   surface level); both round-trip through the model file and are drawn by the engine. Test
   models of `trimmed_moonpool_cover` and `run_covered_tank.py` (half covered).
+- **HydroBEM `2def9bb`** (2026-11-14; HydroBEM's public history restarted at `ec347ec` that day,
+  so `ee6c71b` below is no longer in it): C ABI 8, model record 13 and results format 5 unchanged,
+  Rust API 57; the header lost its licence lines only. The engine warns of wetted elements that
+  lie on each other with opposite normals (code 10: two bodies in contact, or a surface meshed on
+  both sides), shown in the output pane like its other warnings. The DLL reports `v0.3.0-dirty`:
+  built at 05:07 UTC from the tree of the commits after it, which changed no engine source since.
+  Five Python tests merged (mesh quality, diagnostics, regression, tank plates, walls); the
+  package itself unchanged; the user documentation copied again.
 - **HydroBEM `ee6c71b`** (2026-11-13; HydroBEM's public repository, whose history starts at 0.3.0):
   the C runtime linked as a DLL (above); the DLL reports `961a48fbb552-dirty`, built from the tree
   of `ee6c71b` before that commit, which changed only the build flags it was built with and

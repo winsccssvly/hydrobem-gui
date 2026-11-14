@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/reference/inputs-bodies.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/reference/inputs-bodies.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Inputs: bodies and their surfaces
 
 ## 1. Body

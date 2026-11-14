@@ -72,25 +72,33 @@ def tank_part(make, omegas, **kw):
 def test_full_cover_is_a_closed_container():
     """[A] The fully covered tank: A_jj = rho_T V_T for surge, sway and heave at omega = 0, 1, 2,
     inf (the fluid moves rigidly with the walls, exact in the continuous problem), B = 0 and no
-    warning at omega = 0 (no net flux through walls and cover). Constant panels on these 8 x 4 x 3
-    walls and 8 x 4 cover panels a quadrant: surge and sway 0.7 to 0.9 % at omega = 0, 1, 2 (the
-    open tank's at omega = 0 to the bit: the plate has no normal velocity there), 4.4 % at
-    omega = inf (the cover a sheet of the odd-image problem), heave 5.2 to 5.9 % (the cover's edge on
-    the walls); on twice as many panels a side 0.3 %, 2.0 % and 1.7 to 2.1 %, O(h), validation. The
-    damping is that of the discretization, 2.5e-3 of the peak (8.8e-4 on twice as many). The higher
-    order on flat patches represents the rigid flow exactly (the float32 storage)."""
+    warning at omega = 0 (no net flux through walls and cover). The closed container's potential is
+    defined up to a constant at every frequency, and the solve pins it (theory §10.2): a stretch of
+    the cover by 1e-9 changes A by float32 round-off, where the unpinned solve moved heave by
+    several per cent. Constant panels on these 8 x 4 x 3 walls and 8 x 4 cover panels a quadrant:
+    surge and sway 0.7 to 0.9 % at omega = 0, 1, 2 (the open tank's at omega = 0 to the bit: the
+    plate has no normal velocity there), 4.4 % at omega = inf (the cover a sheet of the odd-image
+    problem), heave 3.1 to 3.4 % and 5.4 % at omega = inf; on twice as many panels a side 0.3 %,
+    2.0 %, heave 1.0 % and 2.3 %, O(h^1.6) and O(h), validation. The damping is that of the
+    discretization, 9e-5 of the peak (3e-5 on twice as many). The higher order on flat patches
+    represents the rigid flow exactly (the float32 storage)."""
     w = [1.0, 2.0]
     with warnings.catch_warnings():
         warnings.simplefilter("error", hb.HydroBEMWarning)
         lim, a, b, a_full = tank_part(lambda d: vessel(d, cover_panels()), [0.0, *w, math.inf])
     for k in ("zero", "infinite"):
         err = np.abs(np.diag(lim[k])[:3] / MASS - 1.0)
-        assert np.all(err < 0.07), (k, err)
+        assert np.all(err < 0.06), (k, err)
     err = np.abs(np.array([np.diag(a[f])[:3] for f in range(len(w))]) / MASS - 1.0)
-    assert np.all(err < 0.07), err
+    assert np.all(err < 0.04), err
     assert np.all(err[:, :2] < 0.012), err
     # no wave in a closed container: the damping of the tank's part is that of the discretization
-    assert peak(b) <= 4e-3 * peak(a_full), peak(b) / peak(a_full)
+    assert peak(b) <= 3e-4 * peak(a_full), peak(b) / peak(a_full)
+    # the constant pinned: a negligible change of the geometry changes A by round-off
+    stretched, *_ = tank_part(lambda d: vessel(d, cover_panels(x1=L / 2 * (1.0 + 1e-9))), [0.0, math.inf])
+    for k in ("zero", "infinite"):
+        change = np.abs(np.diag(stretched[k])[:3] - np.diag(lim[k])[:3])
+        assert np.all(change <= 1e-5 * MASS), (k, change / MASS)
     # the low and the higher order agree on the full cover of flat patches
     hull = box_panels(2.0, 1.0, 1.0, n=(1, 1, 1), quarter=True)
     walls = box_panels(L / 2, B / 2, H, n=(1, 1, 1), quarter=True)[:, ::-1] + [0.0, 0.0, ZT]
@@ -139,10 +147,11 @@ def test_half_cover_at_zero_frequency_is_the_open_tank():
                                                   higher_order=True))["zero"])[np.ix_(keep, keep)]  # fmt: skip
 
     assert peak(ho(True) - ho(False)) <= 1e-6 * peak(ho(False))
-    # a mesh of its own
+    # a mesh of its own: the same equations in another order, equal to float32 round-off (to the
+    # bit on some processors, not on others: their kernels sum in another order)
     r1, r2 = radiation(vessel(1.0, half), [1.0, 2.0]), radiation(vessel(1.0, half, own_mesh=True), [1.0, 2.0])
-    assert peak(np.asarray(r1.added_mass) - np.asarray(r2.added_mass)) <= 1e-9 * peak(np.asarray(r1.added_mass))
-    assert peak(np.asarray(r1.radiation_damping) - np.asarray(r2.radiation_damping)) <= 1e-9 * peak(
+    assert peak(np.asarray(r1.added_mass) - np.asarray(r2.added_mass)) <= 1e-6 * peak(np.asarray(r1.added_mass))
+    assert peak(np.asarray(r1.radiation_damping) - np.asarray(r2.radiation_damping)) <= 1e-6 * peak(
         np.asarray(r1.added_mass))
 
 

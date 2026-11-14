@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/reference/inputs-model.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/reference/inputs-model.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Inputs: the model, the environment and the options
 
 All quantities are SI (metres, kg, s, N); angles are degrees; frequencies are

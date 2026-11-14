@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/reference/queries.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/reference/queries.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Queries
 
 Each query is a method of the object that holds its data: a mesh answers for its geometry in
@@ -181,7 +181,9 @@ a B-spline span), the aspect $d^2/2A$, the panels or spans per shortest waveleng
 low-order panels per wavelength); the volumes of the divergence theorem and the edge counts (patch
 sides) of its wetted surface. `m.mesh_quality()` gives every body, `mesh.quality()` a mesh alone
 (reference/inputs-meshes §4). The same findings are warnings (`HydroBEMWarning`, codes 2–5) when
-the model is checked or solved.
+the model is checked or solved, and so are wetted elements that lie on each other with opposite
+normals, of two bodies in contact or of one surface meshed on both sides (code 10, per pair of
+bodies; theory §14).
 
 *Table 7. `hb.MeshQuality`: N elements, B bodies (a mesh alone: one row of the per-body columns).*
 

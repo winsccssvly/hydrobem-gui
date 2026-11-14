@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/references.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/references.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # References (public)
 
 Public sources cited by the project, with the subject of each. Bibliographic

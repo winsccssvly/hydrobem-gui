@@ -144,7 +144,7 @@ exits 1 when the installed wheel is not what `engine/IMPORT.json` and `target/re
 ## Examples, test models and the WAMIT demonstration models
 
 `examples/` holds HydroBEM's examples (its `examples/`, the tracked files: the scripts and the
-README, not `out/`), copied at HydroBEM `ee6c71b` (2026-11-13) with `import hydrobem as hb` → `import
+README, not `out/`), copied at HydroBEM `2def9bb` (2026-11-14) with `import hydrobem as hb` → `import
 hydrobem_gui as hb` in each script and the README written for this package. Copy them again when
 HydroBEM's change (with the Python package at the same commit), and run each script on the
 installed wheel: it ends with `check: ... ok`.
@@ -189,7 +189,7 @@ regenerates `THIRD_PARTY_NOTICES.md` after a dependency changes.
 ## The Python package
 
 `python/hydrobem_gui` and `python/tests` are HydroBEM's Python package and tests
-(`python/hydrobem`, `tests/python`, `tests/data`) copied at HydroBEM `34adff1` (2026-11-04) and brought to `ee6c71b` (HydroBEM's public repository) (API 56, C ABI 8, model record 13, 2026-11-13), renamed,
+(`python/hydrobem`, `tests/python`, `tests/data`) copied at HydroBEM `34adff1` (2026-11-04) and brought to `2def9bb` (HydroBEM's public repository) (API 57, C ABI 8, model record 13, 2026-11-14), renamed,
 with the extension module (PyO3) replaced by `_core.py`: the same classes and functions over the
 DLL's C ABI with ctypes (`Results.selection` by `hb_results_selection`, the check of
 `Model.new_results` by `hb_results_check`). HydroBEM's later changes are copied by hand when wanted; nothing is shared
@@ -206,7 +206,7 @@ the solve (a poll before the thread reaches the engine is the empty one), and th
 is checked apart from the package's. The headers of the reference data in `python/tests/data` name the scripts that made them
 (`gen_green_*`, `extract_hulme.py`, ...); those scripts stay in HydroBEM.
 
-To bring HydroBEM's later Python changes over (`git diff ee6c71b <new> -- python tests` in HydroBEM
+To bring HydroBEM's later Python changes over (`git diff 2def9bb <new> -- python tests` in HydroBEM
 shows them):
 
 1. Copy the changed files of `python/hydrobem/` into `python/hydrobem_gui/`, except `_core.pyd`;

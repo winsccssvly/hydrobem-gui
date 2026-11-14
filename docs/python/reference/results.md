@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/reference/results.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/reference/results.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Results
 
 `m.solve()` returns the results of a model and keeps them in it: `m.results` gives them while `m.state` is

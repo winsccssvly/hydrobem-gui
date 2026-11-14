@@ -13,7 +13,7 @@ HydroBEM checkout, with the changes this package needs:
 Copy again with the Python package at each engine import (docs/DEVELOPMENT.md); never edit the
 copies by hand.
 
-    python scripts/copy_hydrobem_docs.py ..\\HydroBEM ee6c71b [--url https://.../docs/]
+    python scripts/copy_hydrobem_docs.py ..\\HydroBEM 2def9bb [--url https://.../docs/]
 """
 
 import argparse

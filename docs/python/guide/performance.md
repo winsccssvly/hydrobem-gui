@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/performance.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/performance.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Performance, threads and progress
 
 The time of a solve grows with the square of the number of panels for the matrices and with its

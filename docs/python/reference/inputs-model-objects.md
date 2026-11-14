@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/reference/inputs-model-objects.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/reference/inputs-model-objects.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Inputs: lids, fixed dampers and field points
 
 The lists `m.lids` and `m.fixed_dampers` hold what exists independently of the bodies, in global

@@ -1,4 +1,4 @@
-<!-- Copied from HydroBEM docs/guide/working-with-the-model.md at ee6c71b by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
+<!-- Copied from HydroBEM docs/guide/working-with-the-model.md at 2def9bb by scripts/copy_hydrobem_docs.py; copy again rather than edit. -->
 # Working with the model
 
 A problem in HydroBEM is one object, the model (`hb.Model`). Everything about the problem lives in
